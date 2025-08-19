@@ -79,6 +79,7 @@ function PromptInputWithActions({ value, isLoading, onValueChange, onSubmit }: P
               </PromptInputAction>
 
               <Button
+                type="submit"
                 size="icon"
                 disabled={!prompt.trim() || isLoading}
                 onClick={onSubmit}

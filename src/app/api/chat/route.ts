@@ -1,39 +1,48 @@
 // src/app/api/chat/route.ts
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { GoogleGenerativeAIStream, Message, StreamingTextResponse } from 'ai';
+import { GoogleGenerativeAIStream, StreamingTextResponse } from 'ai';
 
-// Obtenha a chave da API do ambiente
+export const runtime = 'edge';
+
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || '');
 
-// Função para formatar as mensagens para o formato do SDK do Google
-const buildGoogleGenAIPrompt = (messages: Message[]) => ({
-  contents: messages
-    .filter(m => m.role === 'user' || m.role === 'assistant')
-    .map(m => ({
-      role: m.role === 'user' ? 'user' : 'model',
-      parts: [{ text: m.content }],
-    })),
-});
-
-// Exporta a função POST que será o nosso endpoint da API
 export async function POST(req: Request) {
   try {
     const { messages } = await req.json();
 
-    const geminiStream = await genAI
-      .getGenerativeModel({ model: 'gemini-pro' }) // Modelo utilizado
-      .generateContentStream(buildGoogleGenAIPrompt(messages));
+    // Pega a última mensagem do usuário
+    const lastUserMessage = messages[messages.length - 1]?.content || '';
+    
+    // Constrói o histórico para a API do Google, excluindo a última mensagem do usuário que será usada como prompt principal
+    const history = messages
+      .slice(0, messages.length - 1)
+      .map((message: any) => ({
+        role: message.role,
+        parts: [{ text: message.content }],
+      }));
 
-    // Converte o stream do Gemini para um formato amigável para o frontend
-    const stream = GoogleGenerativeAIStream(geminiStream);
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-1.5-flash', // Modelo recomendado e mais recente
+    });
+
+    // Inicia o chat com o histórico
+    const chat = model.startChat({
+      history: history,
+    });
+    
+    // Envia a última mensagem e obtém o stream
+    const stream = await chat.sendMessageStream(lastUserMessage);
+
+    // Converte o stream do SDK do Google para o formato do Vercel AI SDK
+    const vercelStream = GoogleGenerativeAIStream(stream);
 
     // Retorna a resposta como um stream de texto
-    return new StreamingTextResponse(stream);
+    return new StreamingTextResponse(vercelStream);
+
   } catch (error) {
     console.error('Error in API route:', error);
-    // Retorna uma resposta de erro em formato JSON
-    return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
+    return new Response(JSON.stringify({ error: 'Internal Server Error: ' + (error as Error).message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
